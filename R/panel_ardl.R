@@ -19,7 +19,7 @@
 #'         Consistent only under slope homogeneity.
 #' }
 #'
-#' @param formula A formula specifying the model: y ~ x1 + x2 + ... | group
+#' @param formula A formula specifying the model: gdp ~ investment + trade + ... | group
 #' @param data A data frame containing panel data
 #' @param id Character string specifying the group/panel identifier variable
 #' @param time Character string specifying the time variable
