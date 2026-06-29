@@ -1,8 +1,8 @@
 Package: ardlverse
 Type: Package
 Title: Comprehensive ARDL: Panel, Bootstrap and Fourier Methods
-Version: 1.1.3
-Date: 2026-03-13
+Version: 2.0.0
+Date: 2026-06-29
 Authors@R: c(
     person("Muhammad Abdullah", "Alkhalaf", 
            email = "muhammedalkhalaf@gmail.com", 
@@ -10,7 +10,10 @@ Authors@R: c(
            comment = c(ORCID = "0009-0002-2677-9246")),
     person("Merwan", "Roudane", 
            role = "ctb",
-           comment = "Original Stata implementations"))
+           comment = "Original Stata implementations"),
+    person("Yeleazar", "Levchenko", 
+           role = "ctb",
+           comment = "Bug fixes and PMG/MG/DFE corrections for panel_ardl in v2.0.0 (KSE)"))
 Description: A unified framework for Autoregressive Distributed Lag (ARDL) modeling 
     and cointegration analysis. Implements Panel ARDL with Pooled Mean Group (PMG), 
     Mean Group (MG), and Dynamic Fixed Effects (DFE) estimators following 
@@ -37,10 +40,12 @@ Suggests: testthat (>= 3.0.0), knitr, rmarkdown, covr
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
 NeedsCompilation: no
-Packaged: 2026-03-13 20:46:39 UTC; acad_
+Packaged: 2026-06-29 07:49:08 UTC; acad_
 Author: Muhammad Abdullah Alkhalaf [aut, cre] (ORCID:
     <https://orcid.org/0009-0002-2677-9246>),
-  Merwan Roudane [ctb] (Original Stata implementations)
+  Merwan Roudane [ctb] (Original Stata implementations),
+  Yeleazar Levchenko [ctb] (Bug fixes and PMG/MG/DFE corrections for
+    panel_ardl in v2.0.0 (KSE))
 Maintainer: Muhammad Abdullah Alkhalaf <muhammedalkhalaf@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-03-14 17:00:02 UTC
+Date/Publication: 2026-06-29 08:30:07 UTC

@@ -1,821 +1,746 @@
-#' @title Panel ARDL Estimation
+
+# -----------------------------------------------------------------------------
+# Main entry point
+# -----------------------------------------------------------------------------
+
+#' @title Panel ARDL Estimation (PMG / MG / DFE)
 #' @description Estimate Panel ARDL models with Pooled Mean Group (PMG),
-#'   Mean Group (MG), and Dynamic Fixed Effects (DFE) estimators.
+#'   Mean Group (MG), and Dynamic Fixed Effects (DFE) estimators following
+#'   Pesaran, Shin & Smith (1999). This implementation replicates Stata's
+#'   \code{xtpmg} command (Blackburne & Frank 2007).
 #'
 #' @details
-#' This function implements the panel ARDL framework of Pesaran, Shin & Smith (1999)
-#' for estimating long-run relationships in dynamic heterogeneous panels.
-#'
 #' The model is specified as:
-#' \deqn{\Delta y_{it} = \phi_i (y_{i,t-1} - \theta'_i x_{it}) + \sum_{j=1}^{p-1} \lambda_{ij} \Delta y_{i,t-j} + \sum_{j=0}^{q-1} \delta'_{ij} \Delta x_{i,t-j} + \mu_i + \varepsilon_{it}}
+#' \deqn{\Delta y_{it} = \phi_i (y_{i,t-1} - \theta'_i x_{it}) +
+#'   \sum_{j=1}^{p-1} \lambda_{ij} \Delta y_{i,t-j} +
+#'   \sum_{j=0}^{q-1} \delta'_{ij} \Delta x_{i,t-j} + \mu_i + \varepsilon_{it}}
 #'
 #' Three estimators are available:
 #' \itemize{
-#'   \item \strong{PMG}: Constrains long-run coefficients to be equal across groups while allowing
-#'         short-run coefficients to vary. Efficient when long-run homogeneity holds.
-#'   \item \strong{MG}: Estimates separate regressions for each group and averages coefficients.
+#'   \item \strong{PMG}: Constrains long-run coefficients across groups while
+#'         allowing short-run coefficients to vary. Efficient under long-run homogeneity.
+#'   \item \strong{MG}: Estimates separate regressions per group and averages.
 #'         Consistent but less efficient than PMG.
 #'   \item \strong{DFE}: Traditional dynamic fixed effects with all coefficients pooled.
 #'         Consistent only under slope homogeneity.
 #' }
 #'
-#' @param formula A formula specifying the model: gdp ~ investment + trade + ... | group
-#' @param data A data frame containing panel data
-#' @param id Character string specifying the group/panel identifier variable
-#' @param time Character string specifying the time variable
-#' @param p Integer. Number of lags for dependent variable (default: 1)
-#' @param q Integer or vector. Number of lags for independent variables (default: 1)
-#' @param estimator Character. One of "pmg", "mg", or "dfe" (default: "pmg")
-#' @param ec Logical. If TRUE, display error correction form (default: TRUE)
-#' @param trend Logical. Include time trend (default: FALSE)
-#' @param maxiter Maximum iterations for PMG optimization (default: 100)
-#' @param tol Convergence tolerance (default: 1e-5)
+#' @param formula A formula \code{y ~ x1 + x2 + ...}.
+#' @param data A data frame containing panel data.
+#' @param id Character. Name of the panel/group identifier column.
+#' @param time Character. Name of the time variable column.
+#' @param p Integer. Lags for dependent variable (default 1).
+#' @param q Integer or numeric vector. Lags for independent variables (default 1).
+#' @param estimator Character. One of \code{"pmg"}, \code{"mg"}, \code{"dfe"}.
+#' @param ec Logical. If \code{TRUE}, display error-correction form (default \code{TRUE}).
+#' @param trend Logical. Include a deterministic time trend (default \code{FALSE}).
+#' @param start_time Optional. Restrict estimation to observations at or after this time.
+#' @param cluster Logical. If \code{TRUE}, use cluster-robust standard errors where applicable (default \code{FALSE}).
+#' @param maxiter Integer. Maximum iterations for PMG optimization (default 100).
+#' @param tol Numeric. Convergence tolerance (default 1e-6).
 #'
-#' @return An object of class "panel_ardl" containing:
+#' @return An object of class \code{"panel_ardl"} with components:
 #' \itemize{
-#'   \item \code{coefficients}: Estimated coefficients
-#'   \item \code{long_run}: Long-run coefficients (theta)
-#'   \item \code{short_run}: Short-run coefficients
-#'   \item \code{ec_coef}: Error correction coefficient (phi)
-#'   \item \code{se}: Standard errors
-#'   \item \code{t_values}: t-statistics
-#'   \item \code{p_values}: p-values
-#'   \item \code{group_coefs}: Individual group coefficients (for MG)
-#'   \item \code{residuals}: Model residuals
-#'   \item \code{fitted}: Fitted values
-#'   \item \code{nobs}: Number of observations
-#'   \item \code{ngroups}: Number of groups
-#'   \item \code{df}: Degrees of freedom
-#'   \item \code{sigma}: Residual standard error
-#'   \item \code{loglik}: Log-likelihood
-#'   \item \code{aic}: Akaike Information Criterion
-#'   \item \code{bic}: Bayesian Information Criterion
-#'   \item \code{hausman}: Hausman test for PMG vs MG
+#'   \item \code{long_run}: long-run coefficients (theta).
+#'   \item \code{short_run}: short-run coefficient summaries.
+#'   \item \code{ec_coef}: error-correction coefficient (phi).
+#'   \item \code{vcov}: variance-covariance matrix of long-run coefficients.
+#'   \item \code{sigma}: residual standard error.
+#'   \item \code{estimator}: the estimator used.
 #' }
 #'
 #' @references
-#' Pesaran, M. H., Shin, Y., & Smith, R. P. (1999). Pooled mean group estimation
-#' of dynamic heterogeneous panels. Journal of the American Statistical Association,
-#' 94(446), 621-634.
+#' Pesaran, M. H., Shin, Y., & Smith, R. P. (1999). Pooled mean group
+#' estimation of dynamic heterogeneous panels. \emph{Journal of the American
+#' Statistical Association}, 94(446), 621-634.
 #'
-#' Pesaran, M. H., & Smith, R. (1995). Estimating long-run relationships from
-#' dynamic heterogeneous panels. Journal of Econometrics, 68(1), 79-113.
+#' Blackburne, E. F., & Frank, M. W. (2007). Estimation of nonstationary
+#' heterogeneous panels. \emph{Stata Journal}, 7(2), 197-208.
 #'
 #' @examples
-#' \donttest{
-#' # Load example data
-#' data(macro_panel)
-#'
-#' # Estimate PMG model
-#' pmg_model <- panel_ardl(
-#'   gdp ~ inflation + investment,
-#'   data = macro_panel,
-#'   id = "country",
-#'   time = "year",
-#'   p = 1, q = 1,
-#'   estimator = "pmg"
-#' )
-#' summary(pmg_model)
-#'
-#' # Compare with Mean Group estimator
-#' mg_model <- panel_ardl(
-#'   gdp ~ inflation + investment,
-#'   data = macro_panel,
-#'   id = "country",
-#'   time = "year",
-#'   estimator = "mg"
-#' )
-#'
-#' # Hausman test
-#' hausman_test(pmg_model, mg_model)
+#' \dontrun{
+#' fit <- panel_ardl(y ~ x1 + x2, data = my_panel,
+#'                   id = "country", time = "year",
+#'                   p = 1, q = 1, estimator = "pmg")
+#' summary(fit)
 #' }
 #'
-#' @export
-#' @importFrom stats lm coef residuals fitted model.matrix model.response na.omit
-#' @importFrom stats pnorm pt pchisq optim nlminb
+#' @importFrom stats lm.fit pnorm pt pchisq nlminb na.omit model.matrix setNames
 #' @importFrom MASS ginv
+#' @export
 panel_ardl <- function(formula, data, id, time, p = 1, q = 1,
                        estimator = c("pmg", "mg", "dfe"),
                        ec = TRUE, trend = FALSE,
-                       maxiter = 100, tol = 1e-5) {
-  
+                       start_time = NULL,
+                       cluster = FALSE,
+                       maxiter = 100, tol = 1e-6) {
 
-  # Match arguments
   estimator <- match.arg(estimator)
-  
- # Validate inputs
-  if (!is.data.frame(data)) {
-    stop("'data' must be a data frame")
-  }
-  
-  if (!id %in% names(data)) {
-    stop(paste("ID variable '", id, "' not found in data", sep = ""))
-  }
-  
-  if (!time %in% names(data)) {
-    stop(paste("Time variable '", time, "' not found in data", sep = ""))
-  }
-  
-  # Parse formula
+
+  if (!is.data.frame(data))       stop("'data' must be a data frame")
+  if (!id   %in% names(data))     stop(paste0("ID variable '",   id,   "' not found"))
+  if (!time %in% names(data))     stop(paste0("Time variable '", time, "' not found"))
+
   formula_vars <- all.vars(formula)
-  y_var <- formula_vars[1]
+  y_var  <- formula_vars[1]
   x_vars <- formula_vars[-1]
-  
-  if (!y_var %in% names(data)) {
-    stop(paste("Dependent variable '", y_var, "' not found in data", sep = ""))
-  }
-  
-  for (v in x_vars) {
-    if (!v %in% names(data)) {
-      stop(paste("Variable '", v, "' not found in data", sep = ""))
-    }
-  }
-  
-  # Sort data
-  data <- data[order(data[[id]], data[[time]]), ]
-  
-  # Get groups
+
+  if (!y_var %in% names(data)) stop(paste0("'", y_var, "' not found in data"))
+  for (v in x_vars)
+    if (!v %in% names(data)) stop(paste0("'", v, "' not found in data"))
+
+  data   <- data[order(data[[id]], data[[time]]), ]
   groups <- unique(data[[id]])
   n_groups <- length(groups)
-  
-  # Handle q as vector or scalar
-  if (length(q) == 1) {
+
+  if (length(q) == 1)
     q <- rep(q, length(x_vars))
-  } else if (length(q) != length(x_vars)) {
-    stop("Length of 'q' must equal number of independent variables or be 1")
-  }
-  
-  # Call appropriate estimator
+  else if (length(q) != length(x_vars))
+    stop("length(q) must equal number of x-vars or 1")
+
   result <- switch(estimator,
-    "pmg" = .estimate_pmg(data, y_var, x_vars, id, time, p, q, trend, maxiter, tol),
-    "mg"  = .estimate_mg(data, y_var, x_vars, id, time, p, q, trend),
-    "dfe" = .estimate_dfe(data, y_var, x_vars, id, time, p, q, trend)
+    pmg = .estimate_pmg(data, y_var, x_vars, id, time, p, q, trend, start_time, maxiter, tol),
+    mg  = .estimate_mg (data, y_var, x_vars, id, time, p, q, trend, start_time),
+    dfe = .estimate_dfe(data, y_var, x_vars, id, time, p, q, trend, start_time, cluster)
   )
-  
-  # Add common elements
-  result$call <- match.call()
-  result$formula <- formula
+
+  result$call      <- match.call()
+  result$formula   <- formula
   result$estimator <- estimator
-  result$ec_form <- ec
-  result$trend <- trend
-  result$y_var <- y_var
-  result$x_vars <- x_vars
-  result$id <- id
-  result$time <- time
-  result$p <- p
-  result$q <- q
-  result$ngroups <- n_groups
-  result$groups <- groups
-  
-  # Compute information criteria
+  result$trend     <- trend
+  result$y_var     <- y_var
+  result$x_vars    <- x_vars
+  result$id        <- id
+  result$time      <- time
+  result$p         <- p
+  result$q         <- q
+  result$ngroups   <- n_groups
+  result$groups    <- groups
+
   n <- result$nobs
-  k <- length(result$coefficients)
+  k <- length(result$long_run) + length(result$short_run)
   result$aic <- -2 * result$loglik + 2 * k
   result$bic <- -2 * result$loglik + log(n) * k
-  
+
   class(result) <- c("panel_ardl", "list")
-  return(result)
+  result
 }
 
+# -----------------------------------------------------------------------------
+# Data preparation  (single group, sorted by time)
+#
+# Returns list:
+#   dy       - Dy_t
+#   y_lag1   - y_{t-1}   (LRy in Stata sense: lagged level)
+#   X_levels - X_t       (LRx: CURRENT-period levels for ECT)
+#   X_diff   - [Dx_{jt}, ..., Dx_{j,t-qj+1}, Dy_{t-1}, ..., Dy_{t-p+1}]  (SR dynamics)
+#   n        - number of usable obs after NA removal
+# -----------------------------------------------------------------------------
+.prepare_ardl_data <- function(data, y_var, x_vars, time, p, q, trend,
+                               start_time = NULL) {
 
-#' @title Pooled Mean Group Estimator
-#' @description Internal function for PMG estimation
-#' @keywords internal
-.estimate_pmg <- function(data, y_var, x_vars, id, time, p, q, trend, maxiter, tol) {
-  
-  groups <- unique(data[[id]])
-  n_groups <- length(groups)
-  k_x <- length(x_vars)
-  
-  # Prepare data for each group
-  group_data <- lapply(groups, function(g) {
-    gdata <- data[data[[id]] == g, ]
-    .prepare_ardl_data(gdata, y_var, x_vars, time, p, q, trend)
-  })
-  
-  # Check for valid groups
-  valid_groups <- sapply(group_data, function(x) !is.null(x) && nrow(x$X) > 0)
-  if (sum(valid_groups) < 2) {
-    stop("Need at least 2 valid groups for panel estimation")
-  }
-  
-  group_data <- group_data[valid_groups]
-  groups <- groups[valid_groups]
-  n_groups <- length(groups)
-  
-  # Initial values from MG estimator
-  mg_result <- .estimate_mg_internal(group_data, groups, k_x, trend)
-  theta_init <- mg_result$long_run
-  
-  # PMG optimization: maximize concentrated log-likelihood
-  # Long-run parameters are common, short-run are group-specific
-  
-  pmg_loglik <- function(theta) {
-    ll <- 0
-    for (i in seq_along(group_data)) {
-      gd <- group_data[[i]]
-      
-      # Compute ECT = y_{t-1} - theta' * x_t
-      ect <- gd$y_lag1 - as.vector(gd$X_levels %*% theta)
-      
-      # Regress dy on ECT and short-run terms
-      X_sr <- cbind(ect, gd$X_diff)
-      
-      tryCatch({
-        fit <- lm.fit(X_sr, gd$dy)
-        resid <- fit$residuals
-        sigma2 <- sum(resid^2) / length(resid)
-        ll <- ll - 0.5 * length(resid) * (log(2 * pi) + log(sigma2) + 1)
-      }, error = function(e) {
-        ll <- ll - 1e10
-      })
-    }
-    return(-ll)  # Return negative for minimization
-  }
-  
-  # Optimize
-  opt_result <- tryCatch({
-    nlminb(theta_init, pmg_loglik, 
-           control = list(iter.max = maxiter, rel.tol = tol))
-  }, error = function(e) {
-    list(par = theta_init, convergence = 1)
-  })
-  
-  theta_pmg <- opt_result$par
-  names(theta_pmg) <- x_vars
-  
-  # Compute group-specific short-run coefficients
-  short_run_list <- list()
-  ec_coefs <- numeric(n_groups)
-  residuals_all <- c()
-  fitted_all <- c()
-  
-  for (i in seq_along(group_data)) {
-    gd <- group_data[[i]]
-    
-    # ECT with estimated theta
-    ect <- gd$y_lag1 - as.vector(gd$X_levels %*% theta_pmg)
-    
-    # Short-run regression
-    X_sr <- cbind(ect, gd$X_diff)
-    fit <- lm.fit(X_sr, gd$dy)
-    
-    short_run_list[[i]] <- fit$coefficients
-    ec_coefs[i] <- fit$coefficients[1]
-    
-    residuals_all <- c(residuals_all, fit$residuals)
-    fitted_all <- c(fitted_all, fit$fitted.values)
-  }
-  
-  # Average short-run coefficients
-  sr_matrix <- do.call(rbind, short_run_list)
-  short_run_avg <- colMeans(sr_matrix, na.rm = TRUE)
-  short_run_se <- apply(sr_matrix, 2, sd, na.rm = TRUE) / sqrt(n_groups)
-  
-  # EC coefficient average
-  ec_avg <- mean(ec_coefs)
-  ec_se <- sd(ec_coefs) / sqrt(n_groups)
-  
-  # Standard errors for long-run via delta method (simplified)
-  theta_se <- .compute_pmg_se(group_data, theta_pmg, n_groups)
-  
-  # T-values and p-values
-  theta_t <- theta_pmg / theta_se
-  theta_p <- 2 * pt(-abs(theta_t), df = sum(sapply(group_data, function(x) nrow(x$X))) - length(theta_pmg))
-  
-  # Log-likelihood
-  sigma2 <- sum(residuals_all^2) / length(residuals_all)
-  loglik <- -0.5 * length(residuals_all) * (log(2 * pi) + log(sigma2) + 1)
-  
-  list(
-    coefficients = c(ec = ec_avg, theta_pmg, short_run_avg[-1]),
-    long_run = theta_pmg,
-    long_run_se = theta_se,
-    long_run_t = theta_t,
-    long_run_p = theta_p,
-    short_run = short_run_avg,
-    short_run_se = short_run_se,
-    ec_coef = ec_avg,
-    ec_se = ec_se,
-    ec_group = ec_coefs,
-    group_coefs = short_run_list,
-    residuals = residuals_all,
-    fitted = fitted_all,
-    nobs = length(residuals_all),
-    sigma = sqrt(sigma2),
-    loglik = loglik,
-    convergence = opt_result$convergence
-  )
-}
-
-
-#' @title Mean Group Estimator
-#' @description Internal function for MG estimation
-#' @keywords internal
-.estimate_mg <- function(data, y_var, x_vars, id, time, p, q, trend) {
-  
-  groups <- unique(data[[id]])
-  n_groups <- length(groups)
-  k_x <- length(x_vars)
-  
-  # Prepare data for each group
-  group_data <- lapply(groups, function(g) {
-    gdata <- data[data[[id]] == g, ]
-    .prepare_ardl_data(gdata, y_var, x_vars, time, p, q, trend)
-  })
-  
-  # Check for valid groups
-  valid_groups <- sapply(group_data, function(x) !is.null(x) && nrow(x$X) > 0)
-  group_data <- group_data[valid_groups]
-  groups <- groups[valid_groups]
-  n_groups <- length(groups)
-  
-  result <- .estimate_mg_internal(group_data, groups, k_x, trend)
-  
-  # Compute residuals and fitted
-  residuals_all <- c()
-  fitted_all <- c()
-  
-  for (i in seq_along(group_data)) {
-    gd <- group_data[[i]]
-    X_full <- cbind(gd$y_lag1, gd$X_levels, gd$X_diff)
-    fit <- lm.fit(X_full, gd$dy)
-    residuals_all <- c(residuals_all, fit$residuals)
-    fitted_all <- c(fitted_all, fit$fitted.values)
-  }
-  
-  sigma2 <- sum(residuals_all^2) / length(residuals_all)
-  loglik <- -0.5 * length(residuals_all) * (log(2 * pi) + log(sigma2) + 1)
-  
-  result$residuals <- residuals_all
-  result$fitted <- fitted_all
-  result$nobs <- length(residuals_all)
-  result$sigma <- sqrt(sigma2)
-  result$loglik <- loglik
-  
-  return(result)
-}
-
-
-#' @title Internal MG estimation
-#' @keywords internal
-.estimate_mg_internal <- function(group_data, groups, k_x, trend) {
-  
-  n_groups <- length(groups)
-  
-  # Estimate ARDL for each group
-  group_results <- lapply(seq_along(group_data), function(i) {
-    gd <- group_data[[i]]
-    
-    # Full ARDL regression: dy ~ y_lag1 + X_levels + X_diff
-    X_full <- cbind(gd$y_lag1, gd$X_levels, gd$X_diff)
-    
-    tryCatch({
-      fit <- lm.fit(X_full, gd$dy)
-      coefs <- fit$coefficients
-      
-      # Extract phi (EC coefficient) and compute theta (long-run)
-      phi <- coefs[1]  # Coefficient on y_{t-1}
-      
-      # Long-run coefficients: theta = -beta / phi
-      # where beta are coefficients on X_levels
-      beta <- coefs[2:(k_x + 1)]
-      theta <- -beta / phi
-      
-      list(
-        phi = phi,
-        theta = theta,
-        beta = beta,
-        short_run = coefs[-(1:(k_x + 1))],
-        coefs = coefs,
-        residuals = fit$residuals,
-        valid = TRUE
-      )
-    }, error = function(e) {
-      list(valid = FALSE)
-    })
-  })
-  
-  # Filter valid results
-  valid <- sapply(group_results, function(x) x$valid)
-  group_results <- group_results[valid]
-  n_valid <- length(group_results)
-  
-  # Average coefficients (Mean Group)
-  theta_mat <- do.call(rbind, lapply(group_results, function(x) x$theta))
-  theta_mg <- colMeans(theta_mat, na.rm = TRUE)
-  theta_se <- apply(theta_mat, 2, sd, na.rm = TRUE) / sqrt(n_valid)
-  
-  phi_vec <- sapply(group_results, function(x) x$phi)
-  phi_mg <- mean(phi_vec, na.rm = TRUE)
-  phi_se <- sd(phi_vec, na.rm = TRUE) / sqrt(n_valid)
-  
-  # T-values and p-values
-  theta_t <- theta_mg / theta_se
-  theta_p <- 2 * pnorm(-abs(theta_t))
-  
-  list(
-    coefficients = c(ec = phi_mg, theta_mg),
-    long_run = theta_mg,
-    long_run_se = theta_se,
-    long_run_t = theta_t,
-    long_run_p = theta_p,
-    ec_coef = phi_mg,
-    ec_se = phi_se,
-    ec_group = phi_vec,
-    group_coefs = lapply(group_results, function(x) x$coefs),
-    group_theta = theta_mat
-  )
-}
-
-
-#' @title Dynamic Fixed Effects Estimator
-#' @description Internal function for DFE estimation
-#' @keywords internal
-.estimate_dfe <- function(data, y_var, x_vars, id, time, p, q, trend) {
-  
-  groups <- unique(data[[id]])
-  n_groups <- length(groups)
-  
-  # Prepare pooled data with group dummies
-  all_data <- list()
-  
-  for (g in groups) {
-    gdata <- data[data[[id]] == g, ]
-    prepped <- .prepare_ardl_data(gdata, y_var, x_vars, time, p, q, trend)
-    
-    if (!is.null(prepped) && nrow(prepped$X) > 0) {
-      prepped$group <- g
-      all_data[[length(all_data) + 1]] <- prepped
-    }
-  }
-  
-  # Combine all groups
-  dy_all <- unlist(lapply(all_data, function(x) x$dy))
-  y_lag1_all <- unlist(lapply(all_data, function(x) x$y_lag1))
-  X_levels_all <- do.call(rbind, lapply(all_data, function(x) x$X_levels))
-  X_diff_all <- do.call(rbind, lapply(all_data, function(x) x$X_diff))
-  
-  # Group dummies (fixed effects)
-  group_vec <- unlist(lapply(all_data, function(x) rep(x$group, nrow(x$X))))
-  group_dummies <- model.matrix(~ factor(group_vec) - 1)[, -1, drop = FALSE]
-  
-  # Full regression with fixed effects
-  X_full <- cbind(y_lag1_all, X_levels_all, X_diff_all, group_dummies)
-  
-  fit <- lm.fit(X_full, dy_all)
-  coefs <- fit$coefficients
-  
-  # Extract parameters
-  k_x <- length(x_vars)
-  phi <- coefs[1]
-  beta <- coefs[2:(k_x + 1)]
-  theta <- -beta / phi
-  names(theta) <- x_vars
-  
-  # Standard errors via sandwich
-  n <- length(dy_all)
-  k <- length(coefs)
-  sigma2 <- sum(fit$residuals^2) / (n - k)
-  
-  # Variance-covariance matrix
-  XtX_inv <- tryCatch({
-    solve(crossprod(X_full))
-  }, error = function(e) {
-    MASS::ginv(crossprod(X_full))
-  })
-  
-  vcov_mat <- sigma2 * XtX_inv
-  se <- sqrt(diag(vcov_mat))
-  
-  # Delta method for long-run SE
-  # theta = -beta / phi
-  # Var(theta) = (1/phi^2) * Var(beta) + (beta^2/phi^4) * Var(phi) + ...
-  # Simplified version:
-  theta_se <- abs(theta) * sqrt((se[2:(k_x+1)]/beta)^2 + (se[1]/phi)^2)
-  
-  theta_t <- theta / theta_se
-  theta_p <- 2 * pt(-abs(theta_t), df = n - k)
-  
-  loglik <- -0.5 * n * (log(2 * pi) + log(sigma2) + 1)
-  
-  list(
-    coefficients = coefs,
-    long_run = theta,
-    long_run_se = theta_se,
-    long_run_t = theta_t,
-    long_run_p = theta_p,
-    short_run = coefs[-(1:(k_x + 1 + ncol(group_dummies)))],
-    ec_coef = phi,
-    ec_se = se[1],
-    residuals = fit$residuals,
-    fitted = fit$fitted.values,
-    nobs = n,
-    sigma = sqrt(sigma2),
-    loglik = loglik,
-    vcov = vcov_mat
-  )
-}
-
-
-#' @title Prepare ARDL Data
-#' @description Internal function to prepare data for ARDL estimation
-#' @keywords internal
-.prepare_ardl_data <- function(data, y_var, x_vars, time, p, q, trend) {
-  
-  n <- nrow(data)
-  max_lag <- max(p, max(q))
-  
-  if (n <= max_lag + 1) {
-    return(NULL)
-  }
-  
-  # Sort by time
   data <- data[order(data[[time]]), ]
-  
-  # Create lagged variables
-  y <- data[[y_var]]
-  
-  # First difference of y
+  n    <- nrow(data)
+
+  if (n < max(p, max(q)) + 2) return(NULL)
+
+  y      <- data[[y_var]]
+  t_vals <- data[[time]]   # time values corresponding to each row
+
+  # LHS: Dy_t  (length n-1, row k corresponds to period t_vals[k+1])
   dy <- diff(y)
-  
-  # Lagged level of y
-  y_lag1 <- y[1:(n-1)]
-  
-  # X variables in levels
-  X_levels <- as.matrix(data[1:(n-1), x_vars, drop = FALSE])
-  
-  # First differences of X variables
-  X_diff_list <- lapply(x_vars, function(v) {
-    x <- data[[v]]
-    diff(x)
-  })
-  X_diff <- do.call(cbind, X_diff_list)
+
+  # ECT "y" component: y_{t-1}
+  y_lag1 <- y[1:(n - 1)]
+
+  # ECT "X" component: X at CURRENT period t -> rows 2:n
+  X_levels <- as.matrix(data[2:n, x_vars, drop = FALSE])
+
+  # Time vector aligned with dy (current period = t_vals[2:n])
+  time_vec <- t_vals[2:n]
+
+  # SR contemporaneous diffs  Dx_t
+  X_diff <- do.call(cbind, lapply(x_vars, function(v) diff(data[[v]])))
   colnames(X_diff) <- paste0("D.", x_vars)
-  
-  # Add lagged differences if q > 0
-  if (any(q > 0)) {
-    for (j in seq_along(x_vars)) {
-      if (q[j] > 0) {
-        for (lag in 1:q[j]) {
-          x_diff <- diff(data[[x_vars[j]]])
-          lagged <- c(rep(NA, lag), x_diff[1:(length(x_diff) - lag)])
-          X_diff <- cbind(X_diff, lagged)
-          colnames(X_diff)[ncol(X_diff)] <- paste0("D.", x_vars[j], ".L", lag)
-        }
+
+  # SR lagged diffs of x: lags 1 ... q[j]-1
+  for (j in seq_along(x_vars)) {
+    if (q[j] > 1) {
+      xd <- diff(data[[x_vars[j]]])
+      for (lag in seq_len(q[j] - 1)) {
+        col <- c(rep(NA_real_, lag), xd[seq_len(length(xd) - lag)])
+        X_diff <- cbind(X_diff, col)
+        colnames(X_diff)[ncol(X_diff)] <- paste0("D.", x_vars[j], ".L", lag)
       }
     }
   }
-  
-  # Add lagged dy if p > 1
+
+  # SR lagged diffs of y: lags 1 ... p-1
   if (p > 1) {
-    for (lag in 1:(p-1)) {
-      dy_lagged <- c(rep(NA, lag), dy[1:(length(dy) - lag)])
-      X_diff <- cbind(X_diff, dy_lagged)
-      colnames(X_diff)[ncol(X_diff)] <- paste0("D.y.L", lag)
+    for (lag in seq_len(p - 1)) {
+      col <- c(rep(NA_real_, lag), dy[seq_len(length(dy) - lag)])
+      X_diff <- cbind(X_diff, col)
+      colnames(X_diff)[ncol(X_diff)] <- paste0("D.", y_var, ".L", lag)
     }
   }
-  
-  # Combine and remove NAs
-  full_data <- data.frame(
-    dy = dy,
-    y_lag1 = y_lag1,
-    X_levels,
-    X_diff
-  )
-  
-  full_data <- na.omit(full_data)
-  
+
+  # Combine and drop rows with any NA
+  df <- data.frame(dy = dy, y_lag1 = y_lag1, .time = time_vec,
+                   X_levels, X_diff,
+                   check.names = FALSE)
+  df <- na.omit(df)
+
+  # Apply start_time filter AFTER lag computation (mirrors Stata's "if year>=X")
+  if (!is.null(start_time)) {
+    df <- df[df$.time >= start_time, , drop = FALSE]
+  }
+  df$.time <- NULL   # remove helper column
+
+  if (nrow(df) < ncol(X_diff) + length(x_vars) + 3) return(NULL)
+
+  xd_cols <- setdiff(names(df), c("dy", "y_lag1", x_vars))
+
   list(
-    dy = full_data$dy,
-    y_lag1 = full_data$y_lag1,
-    X_levels = as.matrix(full_data[, x_vars, drop = FALSE]),
-    X_diff = as.matrix(full_data[, -(1:(2 + length(x_vars))), drop = FALSE]),
-    X = as.matrix(full_data[, -1, drop = FALSE]),
-    n = nrow(full_data)
+    dy       = df[["dy"]],
+    y_lag1   = df[["y_lag1"]],
+    X_levels = as.matrix(df[, x_vars,   drop = FALSE]),
+    X_diff   = as.matrix(df[, xd_cols,  drop = FALSE]),
+    n        = nrow(df)
   )
 }
 
+# -----------------------------------------------------------------------------
+# CalcMGE: mean and cross-sectional variance
+#   V = B_demeaned' %*% B_demeaned / (N*(N-1))   (Stata CalcMGE formula)
+# -----------------------------------------------------------------------------
+.calc_mge <- function(B) {
+  # B: matrix N x k  (each row = one group's coefficient vector)
+  N    <- nrow(B)
+  bbar <- colMeans(B, na.rm = TRUE)
+  tmp  <- sweep(B, 2, bbar)
+  V    <- crossprod(tmp) / (N * (N - 1))
+  list(mean = bbar, vcov = V, se = sqrt(diag(V)))
+}
 
-#' @title Compute PMG Standard Errors
-#' @description Internal function to compute standard errors for PMG estimator
-#' @keywords internal
-.compute_pmg_se <- function(group_data, theta, n_groups) {
-  
-  k <- length(theta)
-  
-  # Compute group-specific long-run estimates and use their variation
-  theta_group <- matrix(NA, n_groups, k)
-  
-  for (i in seq_along(group_data)) {
-    gd <- group_data[[i]]
-    
-    # Full ARDL for this group
-    X_full <- cbind(gd$y_lag1, gd$X_levels, gd$X_diff)
-    
+# -----------------------------------------------------------------------------
+# PMG estimator
+# -----------------------------------------------------------------------------
+.estimate_pmg <- function(data, y_var, x_vars, id, time, p, q, trend,
+                          start_time = NULL, maxiter = 100, tol = 1e-6) {
+
+  groups   <- unique(data[[id]])
+  k_x      <- length(x_vars)
+
+  # Prepare per-group data
+  gdata_list <- lapply(groups, function(g) {
+    .prepare_ardl_data(data[data[[id]] == g, ], y_var, x_vars, time, p, q, trend,
+                       start_time)
+  })
+  ok <- !sapply(gdata_list, is.null)
+  gdata_list <- gdata_list[ok]
+  groups     <- groups[ok]
+  N          <- length(groups)
+  if (N < 2) stop("Need at least 2 valid groups")
+
+  # -- Initial theta: pooled OLS of y_lag1 ~ X_levels (no constant) ----------
+  # Mirrors Stata: regress $LRy $LRx, noconstant
+  all_ylg  <- do.call(c,    lapply(gdata_list, `[[`, "y_lag1"))
+  all_Xlv  <- do.call(rbind, lapply(gdata_list, `[[`, "X_levels"))
+  theta0   <- drop(lm.fit(all_Xlv, all_ylg)$coefficients)
+  names(theta0) <- x_vars
+
+  # -- Concentrated log-likelihood --------------------------------------------
+  # Given theta, for each group regress dy ~ ECT + X_diff + 1 (with constant)
+  # and sum the MLE log-likelihoods.  Mirrors Stata's xtpmg_ml d0 evaluator.
+  neg_ll <- function(theta) {
+    ll <- 0
+    for (gd in gdata_list) {
+      ect  <- gd$y_lag1 - drop(gd$X_levels %*% theta)
+      Xsr  <- cbind(ect, gd$X_diff, 1)
+      fit  <- tryCatch(lm.fit(Xsr, gd$dy), error = function(e) NULL)
+      if (is.null(fit)) { ll <- ll - 1e12; next }
+      Ti   <- length(fit$residuals)
+      s2i  <- sum(fit$residuals^2) / Ti          # MLE variance (/ T)
+      if (!is.finite(s2i) || s2i <= 0) { ll <- ll - 1e12; next }
+      ll   <- ll - 0.5 * Ti * (log(2 * pi) + log(s2i) + 1)
+    }
+    -ll   # return negative for minimisation
+  }
+
+  opt <- tryCatch(
+    nlminb(theta0, neg_ll, control = list(iter.max = maxiter, rel.tol = tol)),
+    error = function(e) list(par = theta0, convergence = 1)
+  )
+  theta_pmg <- setNames(opt$par, x_vars)
+
+  # -- Group-specific SR regressions with estimated theta --------------------
+  phi_vec    <- numeric(N)
+  sig2_vec   <- numeric(N)
+  XLR_list   <- vector("list", N)
+  W_list     <- vector("list", N)   # [ECT, X_diff, 1] per group
+  sr_list    <- vector("list", N)   # full SR coef vector per group
+  res_list   <- vector("list", N)
+  fit_list   <- vector("list", N)
+
+  for (i in seq_len(N)) {
+    gd       <- gdata_list[[i]]
+    ect      <- gd$y_lag1 - drop(gd$X_levels %*% theta_pmg)
+    Xsr      <- cbind(ect, gd$X_diff, 1)
+    fit      <- lm.fit(Xsr, gd$dy)
+    Ti       <- length(fit$residuals)
+
+    phi_vec[i]  <- fit$coefficients[1]
+    sig2_vec[i] <- sum(fit$residuals^2) / Ti
+    XLR_list[[i]] <- gd$X_levels
+    W_list[[i]]   <- Xsr
+    sr_list[[i]]  <- fit$coefficients
+    res_list[[i]] <- fit$residuals
+    fit_list[[i]] <- fit$fitted.values
+  }
+
+  # -- PSS 1999 information matrix for theta SE ------------------------------
+  # G = [ Gxx    Grow  ]    where Grow is kl * (N*ks)
+  #     [ Grow'  G_SR  ]    G_SR block-diagonal  N * ks * ks blocks
+  ks   <- ncol(W_list[[1]])   # = 1 (ec) + ncol(X_diff) + 1 (const)
+  Gxx  <- matrix(0, k_x, k_x)
+  Grow <- matrix(0, k_x, N * ks)
+  Gsr  <- matrix(0, N * ks, N * ks)
+
+  for (i in seq_len(N)) {
+    phi_i <- phi_vec[i];  s2_i <- sig2_vec[i]
+    XLRi  <- XLR_list[[i]];  Wi <- W_list[[i]]
+    idx   <- seq((i - 1) * ks + 1, i * ks)
+
+    Gxx          <- Gxx + (phi_i^2 / s2_i) * crossprod(XLRi)
+    Grow[, idx]  <- -(phi_i / s2_i) * crossprod(XLRi, Wi)
+    Gsr[idx,idx] <- (1 / s2_i) * crossprod(Wi)
+  }
+
+  G_full <- rbind(cbind(Gxx, Grow), cbind(t(Grow), Gsr))
+  V_full <- tryCatch(solve(G_full),
+                     error = function(e) MASS::ginv(G_full))
+  V_theta  <- V_full[seq_len(k_x), seq_len(k_x), drop = FALSE]
+  theta_se <- setNames(sqrt(diag(V_theta)), x_vars)
+  theta_z  <- theta_pmg / theta_se
+  theta_p  <- 2 * pnorm(-abs(theta_z))
+
+  # -- Average SR coefficients (CalcMGE) -------------------------------------
+  sr_mat  <- do.call(rbind, sr_list)
+  sr_names <- c("ec", colnames(gdata_list[[1]]$X_diff), "_cons")
+  colnames(sr_mat) <- sr_names
+  mge     <- .calc_mge(sr_mat)
+  sr_avg  <- mge$mean
+  sr_se   <- mge$se
+
+  # -- Log-likelihood (sum of group OLS MLE log-likelihoods) -----------------
+  loglik <- -sum(sapply(seq_len(N), function(i) {
+    Ti <- length(res_list[[i]])
+    s2 <- sig2_vec[i]
+    0.5 * Ti * (log(2 * pi) + log(s2) + 1)
+  }))
+
+  residuals_all <- do.call(c, res_list)
+  fitted_all    <- do.call(c, fit_list)
+  nobs          <- length(residuals_all)
+
+  list(
+    long_run      = theta_pmg,
+    long_run_se   = theta_se,
+    long_run_z    = theta_z,
+    long_run_p    = theta_p,
+    long_run_vcov = V_theta,
+    short_run     = sr_avg,
+    short_run_se  = sr_se,
+    ec_coef       = unname(sr_avg["ec"]),
+    ec_se         = unname(sr_se["ec"]),
+    ec_group      = phi_vec,
+    group_coefs   = sr_list,
+    sigma2_group  = sig2_vec,
+    residuals     = residuals_all,
+    fitted        = fitted_all,
+    nobs          = nobs,
+    sigma         = sqrt(mean(residuals_all^2)),
+    loglik        = loglik,
+    convergence   = opt$convergence
+  )
+}
+
+# -----------------------------------------------------------------------------
+# MG estimator
+# -----------------------------------------------------------------------------
+.estimate_mg <- function(data, y_var, x_vars, id, time, p, q, trend,
+                         start_time = NULL) {
+
+  groups <- unique(data[[id]])
+  k_x    <- length(x_vars)
+
+  gdata_list <- lapply(groups, function(g) {
+    .prepare_ardl_data(data[data[[id]] == g, ], y_var, x_vars, time, p, q, trend,
+                       start_time)
+  })
+  ok         <- !sapply(gdata_list, is.null)
+  gdata_list <- gdata_list[ok]
+  groups     <- groups[ok]
+  N          <- length(groups)
+  if (N < 2) stop("Need at least 2 valid groups")
+
+  # For each group: regress dy ~ y_lag1 + X_levels + X_diff + 1
+  # Then transform: theta_j = -beta_j/phi,  phi = coef on y_lag1
+  # Mirrors Stata: regress $SRy $LRy $LRx $SRx (with constant)
+  group_results <- lapply(gdata_list, function(gd) {
+    X_full <- cbind(gd$y_lag1, gd$X_levels, gd$X_diff, 1)
     tryCatch({
-      fit <- lm.fit(X_full, gd$dy)
-      phi_i <- fit$coefficients[1]
-      beta_i <- fit$coefficients[2:(k + 1)]
-      theta_group[i, ] <- -beta_i / phi_i
-    }, error = function(e) {
-      # Keep NA
-    })
-  }
-  
-  # Standard error from cross-sectional variation
-  se <- apply(theta_group, 2, sd, na.rm = TRUE) / sqrt(sum(!is.na(theta_group[, 1])))
-  
-  return(se)
-}
+      fit   <- lm.fit(X_full, gd$dy)
+      cf    <- fit$coefficients
+      phi   <- cf[1]
+      beta  <- cf[seq(2, k_x + 1)]
+      theta <- -beta / phi
+      sr    <- cf[seq(k_x + 2, length(cf))]   # [Dx cols, _cons]
+      list(theta = theta, phi = phi, sr = sr,
+           all = c(theta, phi, sr),
+           residuals = fit$residuals, valid = TRUE)
+    }, error = function(e) list(valid = FALSE))
+  })
 
+  valid          <- sapply(group_results, function(x) isTRUE(x$valid))
+  group_results  <- group_results[valid]
+  n_valid        <- length(group_results)
 
-#' @title Summary method for panel_ardl
-#' @description Print summary of Panel ARDL estimation results
-#' @param object An object of class "panel_ardl"
-#' @param ... Additional arguments (ignored)
-#' @return Invisibly returns the summary object
-#' @export
-summary.panel_ardl <- function(object, ...) {
-  
-  cat("\n")
-  cat("====================================================================\n")
-  cat("         Panel ARDL Estimation Results\n")
-  cat("====================================================================\n\n")
-  
-  cat("Call:\n")
-  print(object$call)
-  cat("\n")
-  
-  cat("Estimator:        ", toupper(object$estimator), "\n")
-  cat("Dependent variable:", object$y_var, "\n")
-  cat("Number of groups:  ", object$ngroups, "\n")
-  cat("Observations:      ", object$nobs, "\n")
-  cat("ARDL(", object$p, ", ", paste(object$q, collapse = ","), ")\n\n", sep = "")
-  
-  # Long-run coefficients
-  cat("--------------------------------------------------------------------\n")
-  cat("                     Long-Run Coefficients\n")
-  cat("--------------------------------------------------------------------\n")
-  
-  lr_table <- data.frame(
-    Estimate = object$long_run,
-    `Std. Error` = object$long_run_se,
-    `t value` = object$long_run_t,
-    `Pr(>|t|)` = object$long_run_p,
-    check.names = FALSE
+  # CalcMGE on full transformed vector [theta_1,...,theta_k, phi, SR...]
+  B    <- do.call(rbind, lapply(group_results, `[[`, "all"))
+  mge  <- .calc_mge(B)
+
+  k_sr   <- length(group_results[[1]]$sr)
+  all_names <- c(x_vars,
+                 "ec",
+                 colnames(gdata_list[[which(valid)[1]]]$X_diff),
+                 "_cons")
+  names(mge$mean) <- all_names
+  names(mge$se)   <- all_names
+
+  theta_mg <- mge$mean[seq_len(k_x)]
+  theta_se <- mge$se  [seq_len(k_x)]
+  theta_z  <- theta_mg / theta_se
+  theta_p  <- 2 * pnorm(-abs(theta_z))
+
+  phi_mg   <- mge$mean["ec"]
+  phi_se   <- mge$se  ["ec"]
+
+  sr_idx   <- seq(k_x + 1, k_x + 1 + k_sr)
+  sr_avg   <- mge$mean[sr_idx]
+  sr_se    <- mge$se  [sr_idx]
+
+  # Residuals / fitted from full group regressions
+  res_list <- lapply(seq_along(gdata_list)[valid], function(ii) {
+    gd     <- gdata_list[[ii]]
+    X_full <- cbind(gd$y_lag1, gd$X_levels, gd$X_diff, 1)
+    fit    <- lm.fit(X_full, gd$dy)
+    list(res = fit$residuals, fit = fit$fitted.values)
+  })
+  residuals_all <- do.call(c, lapply(res_list, `[[`, "res"))
+  fitted_all    <- do.call(c, lapply(res_list, `[[`, "fit"))
+  nobs          <- length(residuals_all)
+
+  sig2   <- mean(residuals_all^2)
+  loglik <- -0.5 * nobs * (log(2 * pi) + log(sig2) + 1)
+
+  list(
+    long_run      = theta_mg,
+    long_run_se   = theta_se,
+    long_run_z    = theta_z,
+    long_run_p    = theta_p,
+    long_run_vcov = mge$vcov[seq_len(k_x), seq_len(k_x)],
+    short_run     = sr_avg,
+    short_run_se  = sr_se,
+    ec_coef       = unname(phi_mg),
+    ec_se         = unname(phi_se),
+    ec_group      = sapply(group_results, `[[`, "phi"),
+    group_coefs   = lapply(group_results, `[[`, "all"),
+    group_theta   = do.call(rbind, lapply(group_results, `[[`, "theta")),
+    residuals     = residuals_all,
+    fitted        = fitted_all,
+    nobs          = nobs,
+    sigma         = sqrt(sig2),
+    loglik        = loglik
   )
-  
-  # Add significance stars
-  lr_table$` ` <- ifelse(lr_table$`Pr(>|t|)` < 0.001, "***",
-                   ifelse(lr_table$`Pr(>|t|)` < 0.01, "**",
-                   ifelse(lr_table$`Pr(>|t|)` < 0.05, "*",
-                   ifelse(lr_table$`Pr(>|t|)` < 0.1, ".", ""))))
-  
-  print(lr_table, digits = 4)
-  cat("---\n")
-  cat("Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\n")
-  
-  # Error correction coefficient
-  cat("--------------------------------------------------------------------\n")
-  cat("                 Error Correction Coefficient\n")
-  cat("--------------------------------------------------------------------\n")
-  cat("EC coefficient (phi):", round(object$ec_coef, 4), "\n")
-  cat("Std. Error:          ", round(object$ec_se, 4), "\n")
-  ec_t <- object$ec_coef / object$ec_se
-  ec_p <- 2 * pnorm(-abs(ec_t))
-  cat("t-value:             ", round(ec_t, 4), "\n")
-  cat("p-value:             ", format.pval(ec_p, digits = 4), "\n")
-  
-  if (object$ec_coef >= 0) {
-    cat("\n*** Warning: EC coefficient should be negative for convergence ***\n")
-  } else {
-    half_life <- -log(2) / log(1 + object$ec_coef)
-    cat("Half-life:           ", round(half_life, 2), "periods\n")
-  }
-  
-  cat("\n")
-  
-  # Model fit
-  cat("--------------------------------------------------------------------\n")
-  cat("                      Model Fit Statistics\n")
-  cat("--------------------------------------------------------------------\n")
-  cat("Residual std. error: ", round(object$sigma, 4), "\n")
-  cat("Log-likelihood:      ", round(object$loglik, 2), "\n")
-  cat("AIC:                 ", round(object$aic, 2), "\n")
-  cat("BIC:                 ", round(object$bic, 2), "\n")
-  
-  if (!is.null(object$convergence)) {
-    cat("Convergence:         ", ifelse(object$convergence == 0, "Yes", "No"), "\n")
-  }
-  
-  cat("====================================================================\n")
-  
-  invisible(object)
 }
 
+# -----------------------------------------------------------------------------
+# DFE estimator
+# -----------------------------------------------------------------------------
+.estimate_dfe <- function(data, y_var, x_vars, id, time, p, q, trend,
+                          start_time = NULL, cluster = FALSE) {
 
-#' @title Print method for panel_ardl
-#' @description Print Panel ARDL results
-#' @param x An object of class "panel_ardl"
-#' @param ... Additional arguments (ignored)
+  groups <- unique(data[[id]])
+  k_x    <- length(x_vars)
+
+  gdata_list <- lapply(groups, function(g) {
+    gd <- .prepare_ardl_data(data[data[[id]] == g, ], y_var, x_vars, time, p, q, trend,
+                             start_time)
+    if (!is.null(gd)) gd$group <- g
+    gd
+  })
+  ok         <- !sapply(gdata_list, is.null)
+  gdata_list <- gdata_list[ok]
+  N_valid    <- length(gdata_list)
+
+  dy_all    <- do.call(c,    lapply(gdata_list, `[[`, "dy"))
+  ylg_all   <- do.call(c,    lapply(gdata_list, `[[`, "y_lag1"))
+  Xlv_all   <- do.call(rbind, lapply(gdata_list, `[[`, "X_levels"))
+  Xdiff_all <- do.call(rbind, lapply(gdata_list, `[[`, "X_diff"))
+
+  grp_vec   <- do.call(c, lapply(gdata_list, function(gd) rep(gd$group, gd$n)))
+  grp_dum   <- model.matrix(~ factor(grp_vec) - 1)
+
+  # Full regression: dy ~ y_lag1 + X_levels + X_diff + group_FE
+  # Mirrors: xtreg $SRy $LRy $LRx $SRx, fe
+  X_full <- cbind(ylg_all, Xlv_all, Xdiff_all, grp_dum)
+  fit    <- lm.fit(X_full, dy_all)
+  cf     <- fit$coefficients
+
+  phi  <- cf[1]
+  beta <- cf[seq(2, k_x + 1)]
+  theta <- setNames(-beta / phi, x_vars)
+
+  n     <- length(dy_all)
+  n_xd  <- ncol(Xdiff_all)
+  k_nfe <- 1L + k_x + n_xd          # phi + betas + deltas (no FE dummies)
+  k_all <- ncol(X_full)
+  G     <- N_valid
+
+  XtXinv <- tryCatch(solve(crossprod(X_full)),
+                     error = function(e) MASS::ginv(crossprod(X_full)))
+
+  # Bread: top-left k_nfe * k_nfe block = (X_within'X_within)^{-1} by Frisch-Waugh
+  B_slopes <- XtXinv[seq_len(k_nfe), seq_len(k_nfe)]
+  X_slopes <- X_full[, seq_len(k_nfe), drop = FALSE]
+
+  if (cluster) {
+    # Cluster-robust sandwich (clustering by group = FE level)
+    # Score for group g: s_g = X_slopes_g' * u_g  (within mean of u_g = 0)
+    meat <- matrix(0, k_nfe, k_nfe)
+    obs_start <- 1L
+    for (gd in gdata_list) {
+      Ti  <- gd$n
+      idx <- seq_len(Ti) + obs_start - 1L
+      sg  <- colSums(X_slopes[idx, , drop = FALSE] * fit$residuals[idx])
+      meat <- meat + outer(sg, sg)
+      obs_start <- obs_start + Ti
+    }
+    # Stata correction: G/(G-1) * (n-1)/(n-k_all) - k_all includes FE dummies
+    correction  <- (G / (G - 1)) * ((n - 1) / (n - k_all))
+    vcov_slopes <- B_slopes %*% meat %*% B_slopes * correction
+  } else {
+    s2          <- sum(fit$residuals^2) / (n - k_all)
+    vcov_slopes <- s2 * B_slopes
+  }
+
+  # Full delta-method VCV for theta = -beta / phi
+  # G_theta[j, 1]   = d(theta_j)/d(phi)   = beta[j] / phi^2
+  # G_theta[j, 1+j] = d(theta_j)/d(beta_j) = -1 / phi
+  G_theta <- matrix(0, k_x, k_nfe)
+  for (j in seq_len(k_x)) {
+    G_theta[j, 1]   <- beta[j] / phi^2
+    G_theta[j, 1+j] <- -1 / phi
+  }
+  V_theta  <- G_theta %*% vcov_slopes %*% t(G_theta)
+  theta_se <- setNames(sqrt(diag(V_theta)), x_vars)
+  theta_z  <- theta / theta_se
+  theta_p  <- 2 * pnorm(-abs(theta_z))
+
+  # SR coefs and SEs
+  ec_se_val    <- sqrt(vcov_slopes[1, 1])
+  delta_idx    <- seq(k_x + 2L, k_nfe)
+  sr_cf        <- cf[delta_idx]
+  sr_se_diffs  <- sqrt(diag(vcov_slopes)[delta_idx])
+
+  # _cons = grand-mean intercept (equivalent to Stata's xtreg fe _b[_cons])
+  slope_means <- c(mean(ylg_all), colMeans(Xlv_all), colMeans(Xdiff_all))
+  cons_val    <- mean(dy_all) - sum(cf[seq_len(k_nfe)] * slope_means)
+  grad_cons   <- -slope_means
+  se_cons     <- sqrt(as.numeric(t(grad_cons) %*% vcov_slopes %*% grad_cons))
+
+  sr_names <- c("ec", colnames(Xdiff_all), "_cons")
+  sr_avg   <- setNames(c(phi, sr_cf, cons_val), sr_names)
+  sr_se_v  <- setNames(c(ec_se_val, sr_se_diffs, se_cons), sr_names)
+
+  s2_mle <- sum(fit$residuals^2) / n
+  loglik  <- -0.5 * n * (log(2 * pi) + log(s2_mle) + 1)
+
+  list(
+    long_run      = theta,
+    long_run_se   = theta_se,
+    long_run_z    = theta_z,
+    long_run_p    = theta_p,
+    long_run_vcov = V_theta,
+    short_run     = sr_avg,
+    short_run_se  = sr_se_v,
+    ec_coef       = phi,
+    ec_se         = ec_se_val,
+    residuals     = fit$residuals,
+    fitted        = fit$fitted.values,
+    nobs          = n,
+    sigma         = sqrt(s2_mle),
+    loglik        = loglik
+  )
+}
+
+# -----------------------------------------------------------------------------
+# print / summary
+# -----------------------------------------------------------------------------
+
+#' @title Print Method for panel_ardl Objects
+#' @description Concise display of a fitted \code{panel_ardl} model.
+#' @param x A \code{panel_ardl} object.
+#' @param ... Additional arguments (currently ignored).
+#' @return Invisibly returns \code{x}.
 #' @export
 print.panel_ardl <- function(x, ...) {
-  
-  cat("\nPanel ARDL (", toupper(x$estimator), ") Estimation\n", sep = "")
-  cat("Formula: ")
-  print(x$formula)
-  cat("Groups:", x$ngroups, "| Obs:", x$nobs, "\n\n")
-  
-  cat("Long-run coefficients:\n")
-  print(round(x$long_run, 4))
-  
-  cat("\nEC coefficient:", round(x$ec_coef, 4), "\n")
-  
+  cat("\nPanel ARDL (", toupper(x$estimator), ") - ARDL(",
+      x$p, ",", paste(x$q, collapse = ","), ")\n", sep = "")
+  cat("Groups:", x$ngroups, " | Obs:", x$nobs,
+      " | Log-lik:", round(x$loglik, 3), "\n\n")
+  cat("Long-run:\n"); print(round(x$long_run, 6))
+  cat("\nError-correction (avg phi):", round(x$ec_coef, 6), "\n")
   invisible(x)
 }
 
+#' @title Summary Method for panel_ardl Objects
+#' @description Detailed summary of a fitted \code{panel_ardl} model with
+#'   long-run, short-run, and error-correction coefficients.
+#' @param object A \code{panel_ardl} object.
+#' @param digits Integer. Decimal digits to display (default 6).
+#' @param ... Additional arguments (currently ignored).
+#' @return Invisibly returns the summary as a list.
+#' @export
+summary.panel_ardl <- function(object, digits = 6, ...) {
 
-#' @title Hausman Test for PMG vs MG
-#' @description Perform Hausman test comparing PMG and MG estimators
-#'
-#' @param pmg_model A panel_ardl object estimated with PMG
-#' @param mg_model A panel_ardl object estimated with MG (optional)
-#' @param data Data frame (required if mg_model not provided)
-#'
-#' @return A list containing test statistic, degrees of freedom, and p-value
+  est_label <- switch(object$estimator,
+    pmg = "Pooled Mean Group Regression",
+    mg  = "Mean Group Estimation: Error Correction Form",
+    dfe = "Dynamic Fixed Effects Regression: Error Correction Form"
+  )
+
+  cat("\n")
+  cat(est_label, "\n")
+  cat(rep("-", 78), "\n", sep = "")
+  cat(sprintf("%-30s  Number of obs    = %10d\n",
+              paste0("Panel var (i): ", object$id),   object$nobs))
+  cat(sprintf("%-30s  Number of groups = %10d\n",
+              paste0("Time  var (t): ", object$time),  object$ngroups))
+  if (!is.null(object$loglik))
+    cat(sprintf("%-30s  Log Likelihood   = %10.3f\n", "", object$loglik))
+  cat(rep("-", 78), "\n", sep = "")
+
+  # table helper
+  .print_block <- function(label, coefs, se, zv, pv) {
+    cat(sprintf("%-10s |  %12s  %10s  %7s  %6s\n",
+                label, "Coef.", "Std. Err.", "z", "P>|z|"))
+    cat(rep("-", 78), "\n", sep = "")
+    for (nm in names(coefs)) {
+      stars <- ifelse(pv[nm] < 0.01, "**",
+               ifelse(pv[nm] < 0.05, "* ", "  "))
+      cat(sprintf("  %-8s |  %12.7f  %10.7f  %7.2f  %6.4f %s\n",
+                  nm, coefs[nm], se[nm], zv[nm], pv[nm], stars))
+    }
+    cat(rep("-", 78), "\n", sep = "")
+  }
+
+  # Long-run block (ec equation)
+  lr_z <- object$long_run / object$long_run_se
+  lr_p <- 2 * pnorm(-abs(lr_z))
+  cat(sprintf("%-10s |\n", "ec"))
+  .print_block("", object$long_run, object$long_run_se, lr_z, lr_p)
+
+  # Short-run block
+  sr_z <- object$short_run / object$short_run_se
+  sr_p <- 2 * pnorm(-abs(sr_z))
+  cat(sprintf("%-10s |\n", "SR"))
+  .print_block("", object$short_run, object$short_run_se, sr_z, sr_p)
+
+  cat("Signif.: ** p<0.01  * p<0.05\n")
+  invisible(object)
+}
+
+# -----------------------------------------------------------------------------
+# Hausman test
+# -----------------------------------------------------------------------------
+
+#' @title Hausman Test for Panel ARDL Estimators
+#' @description Compare two \code{panel_ardl} estimators (typically MG vs PMG)
+#'   to test for long-run slope homogeneity.
 #'
 #' @details
-#' The Hausman test examines whether the long-run homogeneity assumption
-#' of the PMG estimator is valid. Under the null hypothesis of homogeneity,
-#' both PMG and MG are consistent, but PMG is efficient. Under the alternative,
-#' only MG is consistent.
+#' Under the null of long-run homogeneity, the PMG (efficient) estimator is
+#' consistent and efficient; the MG (inefficient) estimator is consistent but
+#' less efficient. A significant test statistic rejects PMG in favour of MG.
+#'
+#' Argument order in v2.0.0 follows Stata's convention: pass the
+#' \strong{inefficient} estimator first (e.g. MG), then the \strong{efficient}
+#' one (e.g. PMG). This is a breaking change from earlier versions.
+#'
+#' @param inefficient A \code{panel_ardl} object - the always-consistent
+#'   estimator (typically MG).
+#' @param efficient A \code{panel_ardl} object - the under-H0 efficient
+#'   estimator (typically PMG).
+#' @param sigmamore Logical. If \code{TRUE} (default, matches Stata's
+#'   \code{sigmamore} option), rescale the inefficient variance matrix to
+#'   address non-positive-definite difference matrices.
+#'
+#' @return An (invisible) list with \code{statistic}, \code{df},
+#'   \code{p.value}, and \code{theta_diff}.
+#'
+#' @references
+#' Hausman, J. A. (1978). Specification tests in econometrics.
+#' \emph{Econometrica}, 46(6), 1251-1271.
+#'
+#' @examples
+#' \dontrun{
+#' fit_mg  <- panel_ardl(y ~ x, data = d, id = "i", time = "t", estimator = "mg")
+#' fit_pmg <- panel_ardl(y ~ x, data = d, id = "i", time = "t", estimator = "pmg")
+#' hausman_test(fit_mg, fit_pmg)
+#' }
 #'
 #' @export
-hausman_test <- function(pmg_model, mg_model = NULL, data = NULL) {
-  
-  if (pmg_model$estimator != "pmg") {
-    stop("First model must be PMG estimator")
-  }
-  
-  # If MG model not provided, estimate it
-  if (is.null(mg_model)) {
-    if (is.null(data)) {
-      stop("Either mg_model or data must be provided")
-    }
-    mg_model <- panel_ardl(
-      pmg_model$formula, data,
-      id = pmg_model$id, time = pmg_model$time,
-      p = pmg_model$p, q = pmg_model$q,
-      estimator = "mg", trend = pmg_model$trend
-    )
-  }
-  
-  # Coefficient differences
-  theta_diff <- pmg_model$long_run - mg_model$long_run
-  
-  # Variance difference (MG variance - PMG variance should be positive definite)
-  var_diff <- mg_model$long_run_se^2 - pmg_model$long_run_se^2
-  
-  # For positive variance differences
-  var_diff[var_diff < 0] <- abs(var_diff[var_diff < 0])
-  
-  # Hausman statistic
-  H <- sum(theta_diff^2 / var_diff)
-  
-  # Degrees of freedom
+hausman_test <- function(inefficient, efficient, sigmamore = TRUE) {
+
+  if (inefficient$estimator != "mg")
+    stop("'inefficient' must be a MG model")
+  if (!efficient$estimator %in% c("pmg", "dfe"))
+    stop("'efficient' must be a PMG or DFE model")
+
+  theta_diff <- inefficient$long_run - efficient$long_run
   df <- length(theta_diff)
-  
-  # P-value
-  p_value <- 1 - pchisq(H, df)
-  
-  result <- list(
-    statistic = H,
-    df = df,
-    p.value = p_value,
-    theta_pmg = pmg_model$long_run,
-    theta_mg = mg_model$long_run,
-    difference = theta_diff
-  )
-  
-  class(result) <- "hausman_test"
-  
-  cat("\n")
-  cat("===============================================\n")
-  cat("     Hausman Test: PMG vs MG Estimators\n")
-  cat("===============================================\n\n")
-  cat("H0: Long-run coefficients are homogeneous (PMG is efficient)\n")
-  cat("H1: Long-run coefficients are heterogeneous (MG is consistent)\n\n")
-  cat("Chi-squared statistic:", round(H, 4), "\n")
-  cat("Degrees of freedom:   ", df, "\n")
-  cat("P-value:              ", format.pval(p_value, digits = 4), "\n\n")
-  
-  if (p_value < 0.05) {
-    cat("Result: Reject H0 at 5% level. MG estimator preferred.\n")
-  } else {
-    cat("Result: Cannot reject H0. PMG estimator is efficient.\n")
+
+  V_ineff <- inefficient$long_run_vcov
+  V_eff   <- efficient$long_run_vcov
+
+  if (sigmamore) {
+    # xtpmg stores e(sigma) = mean(resid^2) = sigma2, while Stata's hausman
+    # assumes e(sigma) = sigma (RMSE) and does scale = (e(sigma)_E/e(sigma)_b)^2.
+    # Net effect: scale = (sigma2_eff / sigma2_ineff)^2 = (sigma_eff/sigma_ineff)^4.
+    scale   <- (efficient$sigma / inefficient$sigma)^4
+    V_ineff <- scale * V_ineff
   }
-  cat("===============================================\n")
-  
-  invisible(result)
+
+  W   <- V_ineff - V_eff
+  W   <- (W + t(W)) / 2          # symmetrise numerically
+  eig <- eigen(W, symmetric = TRUE, only.values = TRUE)$values
+
+  if (any(eig <= 0)) {
+    H  <- 0
+    pv <- 1
+  } else {
+    H  <- as.numeric(t(theta_diff) %*% solve(W) %*% theta_diff)
+    pv <- 1 - pchisq(H, df)
+  }
+
+  eff_label <- toupper(efficient$estimator)
+  cat(sprintf("\n--- Hausman Test (sigmamore=%s): MG vs %s ---\n",
+              sigmamore, eff_label))
+  cat("H0: long-run homogeneity (efficient estimator preferred)\n")
+  cat(sprintf("Chi2(%d) = %.4f   p-value = %.4f\n", df, H, pv))
+  cat(if (pv < 0.05) "Reject H0: use MG\n" else "Cannot reject H0: efficient model preferred\n")
+
+  invisible(list(statistic = H, df = df, p.value = pv, theta_diff = theta_diff))
 }
