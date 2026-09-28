@@ -1,28 +1,25 @@
 Package: ardlverse
 Type: Package
 Title: Comprehensive ARDL: Panel, Bootstrap and Fourier Methods
-Version: 2.0.0
-Date: 2026-06-29
+Version: 2.0.2
+Date: 2026-09-28
 Authors@R: c(
     person("Muhammad Abdullah", "Alkhalaf", 
            email = "muhammedalkhalaf@gmail.com", 
            role = c("aut", "cre"),
            comment = c(ORCID = "0009-0002-2677-9246")),
-    person("Merwan", "Roudane", 
-           role = "ctb",
-           comment = "Original Stata implementations"),
     person("Yeleazar", "Levchenko", 
            role = "ctb",
            comment = "Bug fixes and PMG/MG/DFE corrections for panel_ardl in v2.0.0 (KSE)"))
 Description: A unified framework for Autoregressive Distributed Lag (ARDL) modeling 
     and cointegration analysis. Implements Panel ARDL with Pooled Mean Group (PMG), 
     Mean Group (MG), and Dynamic Fixed Effects (DFE) estimators following 
-    Pesaran, Shin & Smith (1999) <doi:10.1002/jae.616>. 
+    Pesaran, Shin and Smith (1999) <doi:10.1080/01621459.1999.10474156>. 
     Provides bootstrap-based bounds testing per Pesaran, Shin & Smith (2001) 
     <doi:10.1002/jae.616>. Includes Quantile Nonlinear ARDL (QNARDL) combining 
     distributional and asymmetric effects based on Shin, Yu & Greenwood-Nimmo (2014) 
     <doi:10.1007/978-1-4899-8008-3_9>, and Fourier ARDL for modeling smooth 
-    structural breaks following Enders & Lee (2012) <doi:10.1016/j.econlet.2012.05.019>. 
+    structural breaks following Enders & Lee (2012) <doi:10.1016/j.econlet.2012.04.081>. 
     Features include Augmented ARDL (AARDL) with deferred t and F tests, 
     Multiple-Threshold NARDL for complex asymmetries, Rolling/Recursive ARDL 
     for time-varying relationships, and Panel NARDL for nonlinear panel cointegration. 
@@ -40,12 +37,11 @@ Suggests: testthat (>= 3.0.0), knitr, rmarkdown, covr
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
 NeedsCompilation: no
-Packaged: 2026-06-29 07:49:08 UTC; acad_
+Packaged: 2026-09-28 13:31:22 UTC; Acadh
 Author: Muhammad Abdullah Alkhalaf [aut, cre] (ORCID:
     <https://orcid.org/0009-0002-2677-9246>),
-  Merwan Roudane [ctb] (Original Stata implementations),
   Yeleazar Levchenko [ctb] (Bug fixes and PMG/MG/DFE corrections for
     panel_ardl in v2.0.0 (KSE))
 Maintainer: Muhammad Abdullah Alkhalaf <muhammedalkhalaf@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-06-29 08:30:07 UTC
+Date/Publication: 2026-09-28 15:00:02 UTC
