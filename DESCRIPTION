@@ -1,7 +1,7 @@
 Package: ardlverse
 Type: Package
 Title: Comprehensive ARDL: Panel, Bootstrap and Fourier Methods
-Version: 2.0.2
+Version: 2.0.3
 Date: 2026-09-28
 Authors@R: c(
     person("Muhammad Abdullah", "Alkhalaf", 
@@ -37,11 +37,11 @@ Suggests: testthat (>= 3.0.0), knitr, rmarkdown, covr
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
 NeedsCompilation: no
-Packaged: 2026-09-28 13:31:22 UTC; Acadh
+Packaged: 2026-09-28 18:03:04 UTC; root
 Author: Muhammad Abdullah Alkhalaf [aut, cre] (ORCID:
     <https://orcid.org/0009-0002-2677-9246>),
   Yeleazar Levchenko [ctb] (Bug fixes and PMG/MG/DFE corrections for
     panel_ardl in v2.0.0 (KSE))
 Maintainer: Muhammad Abdullah Alkhalaf <muhammedalkhalaf@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-09-28 15:00:02 UTC
+Date/Publication: 2026-09-30 21:21:15 UTC
